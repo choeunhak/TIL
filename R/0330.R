@@ -116,6 +116,6 @@ lines(density(iris$Sepal.Length))#밀도 보여주기
 
 #hist_boxplot
 
-
+library(ggplot2)
 table(mpg$manufacturer)#빈도수조사사
 

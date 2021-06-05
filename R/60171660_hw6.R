@@ -3,7 +3,7 @@ df<-read.xlsx("sidoAirInfo.xlsx",sheet=1,startRow=2)
 
 city=c()
 pm=c()
-register_google(key="AIzaSyAL0RNRKSnynyGho5eKMrMpwljiGpc6jxE")
+register_google(key="")
 
 i=2
 while(i<ncol(df)){

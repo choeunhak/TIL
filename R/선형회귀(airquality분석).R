@@ -40,7 +40,6 @@ airquality = normalize(airquality)
 str(airquality)
 head(airquality)
 
-install.packages("corrplot")
 library(corrplot)
 airquality_cor = cor(airquality)
 corrplot(airquality_cor,method="color", type="lower", addCoef.col="black")

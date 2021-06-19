@@ -8,6 +8,7 @@ SizeSpecies=xtabs(~size+Species, data=dat)
 chisq.test(SizeSpecies)
 #p-value가 0.05보다 매우 작은 값으로 size와 species는 독립이 아니다
 
+#참고
 dat.aov=aov(dat$Sepal.Length~dat$Species)
 summary(dat.aov)
 #p value는 0.05보다 매우 작은 값이다.
@@ -15,6 +16,7 @@ summary(dat.aov)
 #Sepal의 length size는 species(종)별로 다르다고 할 수 있다.
 
 
+#평균 비교하는 거는 ttest를 수행한다
 #2
 group=c(rep("Woman",9), rep("Man",9))
 weight=c(38.9, 61.2, 73.3, 21.8, 63.4, 64.6, 48.4, 48.8, 48.5, 67.8, 60.0, 63.4, 76.0, 89.4, 73.3,67.3, 61.3, 62.4)
@@ -36,3 +38,29 @@ summary(res.aov)
 #그리고 pvalue가 0.01로 0.05보다 작기 때문에 의미가 있다(별은 한개다)
 #귀무가설이 아닌 대립가설을 선택한다
 #여성과 남성의 몸무게의 평균은 다르다고 할 수 있다
+
+
+
+
+
+
+
+
+
+
+
+#평균간의 비교는 ttest다
+#paired는 관련된 집단인지 아닌지에 따라 달라지는듯(같은 id는 같은 id끼리)
+#일반적으론 false
+
+#교수님 답
+group=c(rep("Woman",9), rep("Man",9))
+weight=c(38.9, 61.2, 73.3, 21.8, 63.4, 64.6, 48.4, 48.8, 48.5, 
+         67.8, 60.0, 63.4, 76.0, 89.4, 73.3,67.3, 61.3, 62.4)
+
+dat2=data.frame(group,weight)
+with(dat2, t.test(weight[group=="Woman"], weight[group=="Man"],paired=FALSE))
+#p값이 0.015로 0.05 보다 작다. 따라서 대립가설을 채택한다. 
+#따라서 여성과 남성의 몸무게의 평균은 다르다. 
+#귀무가설에 의한 모집단의 평균의 차이는 0이어야 하는데, 
+#추정한 신뢰구간은 -29.9와 -3.7사이여서 0이 포함되지 않는 것도 확인된다

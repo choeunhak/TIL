@@ -17,6 +17,12 @@ prop.test(42,100)
 #신뢰구간 0.32와 0.52사이에 0.5가포함되어있다
 #pvalue는 0.13
 
+prop.test(c(57,24),c(407,156))
+
+
+
+prop.test(c(110,33),c(201229,200745))
+
 
 #이표본 비율검정
 prop.test(c(45,55),c(100,90))
@@ -40,6 +46,12 @@ oneway.test(mydata~group, var=T)
 #0.05 보다 크기 때문에 3집단이 차이가 없다고
 #판단한다
 
+
+
+
+
+
+
 #ANOVA- oneway
 my_data = PlantGrowth
 my_data
@@ -59,6 +71,8 @@ boxplot(weight~group, data=my_data,
         frame=F, col=c("blue", "yellow", "red"))
 
 #compute the analysis of variance
+
+my_data
 res.aov = aov(weight~group, data=my_data)
 summary(res.aov)
 #분모는 그룹내 차이
@@ -72,6 +86,11 @@ summary(res.aov)
 #하지만 어떤것끼리 차이가있는지확인하려면 tukeyHSD를 수행해야한다
 TukeyHSD(res.aov)
 #trt2와 trt1의 차이만 p value가 0.01이므로 0.05보다 작아서 significant!
+
+
+
+
+
 
 
 #자동차바퀴수명분석

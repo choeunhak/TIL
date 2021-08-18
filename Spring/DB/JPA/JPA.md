@@ -1,0 +1,1 @@
+- jparespository는 crud 함수를 가지고 있다.

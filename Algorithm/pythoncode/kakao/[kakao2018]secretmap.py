@@ -14,6 +14,8 @@ def solution(n, arr1, arr2):
         binarr1.append(bin(arr1[i])[2:])
         binarr2.append(bin(arr2[i])[2:])
         
+    print(binarr1)
+    print(binarr2)
     for i in range(n):
         t= n-len(binarr1[i])
         binarr1[i]=t*"0"+binarr1[i]

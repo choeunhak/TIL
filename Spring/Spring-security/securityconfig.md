@@ -22,3 +22,14 @@
 - defaultSuccessUrl () – 성공적인 로그인 후 랜딩 페이지
 - failureUrl () – 로그인 실패 후 방문 페이지
 - logoutUrl () – 사용자 정의 로그 아웃
+
+- @EnableGlobalMethodSecurity(securedEnabled=true, prePostEnabled=true)
+    - securedEnabled config에서 secured 어노테이션 활성화
+        ->  controller에서 @secured("ROLE_ADMIN")으로 권한 제어가능
+    
+    - prePostEnabled=true  preAuthorize 어노테이션 활성화
+        -> 컨트롤러에서 메서드 실행되기 직전에 실행됨
+    
+
+
+

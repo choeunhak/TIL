@@ -12,8 +12,6 @@ for _ in range(m):
  
 for e in edge:
     e.sort()
-
-print()
  
 d_check = [False for _ in range(n + 1)]
 def dfs(x):

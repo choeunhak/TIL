@@ -1,19 +1,24 @@
-
-import math
 def solution(people, limit):
     sort_peo = sorted(people)
     i=len(people)-1
     answer = 0
     while(sort_peo):
         max_peo = sort_peo[i]
-        if(max_peo+sort_peo[0]<100):
+        
+        print(sort_peo)
+        print(max_peo)
+        print()
+        if(max_peo+sort_peo[0]<=100):
             sort_peo.remove(sort_peo[0])
             sort_peo.remove(max_peo)
         else:
             sort_peo.remove(max_peo)
         i=i-1
         answer=answer+1
+        if(not sort_peo):
+            break
     return answer
+print(solution([70, 80, 50], 100))
 #limit에 가장 가깝게 만들어야한다!
 #1. 정렬시킨다
 #2. 100에서 최댓값을 뺀다

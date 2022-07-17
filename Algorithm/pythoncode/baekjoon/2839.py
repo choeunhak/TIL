@@ -16,3 +16,6 @@ print(minValue)
 
 # [0,0,1,0,1,2,0,2,3,2,3,4,3,0,3]
 # [4]
+
+
+#https://velog.io/@y7y1h13/%EC%95%8C%EA%B3%A0%EB%A6%AC%EC%A6%98%EB%B0%B1%EC%A4%80-2839%EB%B2%88-%EC%84%A4%ED%83%95-%EB%B0%B0%EB%8B%ACdppython

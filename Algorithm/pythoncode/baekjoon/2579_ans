@@ -1,15 +1,22 @@
 n=int(input())
-stair=[0]*(301)
-dp=[0]*(301)
+stair=[0]*(n+1)
+dp=[0]*(n+1)
 for i in range(n):
     stair[i] = int(input())
-
 
 dp[0] = stair[0]
 dp[1] = stair[0] + stair[1]
 dp[2] = max(stair[1] + stair[2], stair[0] + stair[2])
 
 for i in range(3, n):
+    dp[i] = max(dp[i-3] + stair[i-1], dp[i-2]) + stair[i]
+
     print(dp)
-    dp[i] = max(dp[i - 3] + stair[i - 1] + stair[i], dp[i - 2] + stair[i])
 print(dp[n - 1])
+
+
+# 이게 마지막 계단을 밟는 것을 어떻게 보장해주지?
+# ->  현재 위치의 최대값을 저장하면서 가기 때문에  크게 걱정할 것 없다
+# 만약 이 조건 없으면 마지막 이전의 값이랑 마지막 값 중에 큰 값을 출력하면됨, 아니면 전체 최댓값!!
+# 4번 돌리고 0 5 5 0 넣어보면 됨
+

@@ -1,9 +1,9 @@
 # https://www.acmicpc.net/problem/4134
 import sys
 import math
-f = sys.stdin.readline
+input = sys.stdin.readline
 
-def is_prime(x):
+def isPrime(x):
     if x == 0 or x == 1:
         return False
     for i in range(2, int(math.sqrt(x))+1):
@@ -11,12 +11,12 @@ def is_prime(x):
             return False
     return True
 
-T = int(f())
-for i in range(T):
-    z = int(f())
+t = int(input())
+for i in range(t):
+    n = int(input())
     while True:
-        if is_prime(z):
-            print(z)
+        if isPrime(n):
+            print(n)
             break
         else:
-            z += 1
+            n += 1

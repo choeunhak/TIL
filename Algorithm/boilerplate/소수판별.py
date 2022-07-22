@@ -1,3 +1,5 @@
+import math
+
 def is_prime(x):
     if x == 0 or x == 1:
         return False

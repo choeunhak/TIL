@@ -16,7 +16,7 @@ time = sorted(time, key=lambda a: a[1])
 
 # print(cnt)
 cnt=0
-last=1
+last=0
 
 for i in range(len(time)):
     if(last<=time[i][0]):

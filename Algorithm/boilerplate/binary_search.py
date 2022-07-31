@@ -14,3 +14,6 @@ def binary_search(target, data):
             end = mid -1
 
     return mid
+
+
+# 배열을 하나만 입력받는 경우 data.sort를 밖으로 빼서 시간복잡도를 줄일 수 있다.

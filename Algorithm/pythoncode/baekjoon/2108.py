@@ -34,3 +34,6 @@ print(average(nums))
 print(middle(nums))
 print(frequency(nums))
 print(num_range(nums))
+
+
+# counter 써도 풀 수 있다는데 쓰지 않고 그냥 dict 이용함

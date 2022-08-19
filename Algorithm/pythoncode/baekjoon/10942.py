@@ -14,7 +14,7 @@ for i in range(n):
             dp[s][e]=1
         elif(nums[s]==nums[e]):
             # print(nums[s:e+1])
-            if(s+1==e):
+            if(s+1==e): # if(len(dp[s:e])==0): 이걸로 하면 시간초과 뜸 len 계산 때문인듯
                 dp[s][e]=1
             elif(dp[s+1][e-1]==1):
                 dp[s][e]=1

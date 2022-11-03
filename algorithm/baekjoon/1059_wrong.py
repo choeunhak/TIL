@@ -28,5 +28,8 @@ else:
   for i, j in cand:
     if (i <= n and n <= j):
       cnt = cnt + 1
-print(cand)
+# print(cand) 
 print(cnt)
+
+
+# 만약 n이 정수 집합 중 가장 작은 값보다 작을 경우, 또는 L이 1인 경우를 생각해서 처음에 정수 집합에 0을 추가해준다.

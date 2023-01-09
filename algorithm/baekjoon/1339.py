@@ -3,6 +3,8 @@
 # 하나의 알파벳이 여러 번 나오는 경우 어떻게 처리할지 감이 안잡혔다.
 # 예를 들면 GCG, ACDEB인 경우 G를 어떻게 처리할지...
 
+# defaultdict으로 개선할 수 있다.
+
 n = int(input())
 words = []
 word_dict = {}

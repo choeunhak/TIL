@@ -1,2 +1,2 @@
 import sys
-n = int(sys.stdin.readline())
+input = sys.stdin.readline

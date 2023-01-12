@@ -10,7 +10,7 @@ def bfs(graph, c, r):
         x,y=queue.popleft()
         for i in range(4):
             nx,ny=x+dx[i],y+dy[i]
-            if 0<=nx<n and 0<=ny<n and graph[nx][ny]==0:
+            if 0<=nx<n and 0<=ny<m and graph[nx][ny]==0:
                 queue.append((nx,ny))
                 graph[nx][ny]=graph[x][y]+1
 

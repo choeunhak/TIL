@@ -1,7 +1,7 @@
 # 1.   n x r 행, m y c 열
 
 from collections import deque
-def bfs(box, c, r):
+def bfs(graph, c, r):
     queue=deque()
     queue.append((c,r))
     dx=[-1,1,0,0]
@@ -10,9 +10,9 @@ def bfs(box, c, r):
         x,y=queue.popleft()
         for i in range(4):
             nx,ny=x+dx[i],y+dy[i]
-            if 0<=nx<n and 0<=ny<m and box[nx][ny]==0:
+            if 0<=nx<n and 0<=ny<n and graph[nx][ny]==0:
                 queue.append((nx,ny))
-                box[nx][ny]=box[x][y]+1
+                graph[nx][ny]=graph[x][y]+1
 
 
 m,n=map(int,input().split())

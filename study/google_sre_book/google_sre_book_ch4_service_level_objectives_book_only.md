@@ -62,6 +62,13 @@ Total well-formed requests
 
 Storage system에서는 availability와 함께 durability도 중요한 SLI다.
 
+High availability는 흔히 "nines"로 표현한다.
+
+- 99% → 2 nines
+- 99.999% → 5 nines
+
+책에서는 당시 Google Compute Engine의 공개 availability target으로 **99.95%**, 즉 "three and a half nines"를 예로 든다.
+
 ---
 
 ## 4. SLO — Service Level Objective
@@ -96,6 +103,8 @@ Average search request latency < 100 ms
 
 QPS와 latency는 서로 영향을 줄 수 있으며, 특정 load threshold를 넘으면 performance cliff가 나타날 수 있다.
 
+책의 100 ms latency target은 임의의 예시지만, 일반적으로 낮은 latency가 더 좋고 사용자가 체감하는 latency가 일정 수준을 넘으면 사용자가 이탈할 수 있다는 점도 언급한다.
+
 ---
 
 ## 6. SLO를 공개하는 이유
@@ -103,6 +112,8 @@ QPS와 latency는 서로 영향을 줄 수 있으며, 특정 load threshold를 �
 SLO를 사용자에게 공개하면 서비스가 어떤 수준으로 동작할지에 대한 기대를 설정할 수 있다.
 
 명확한 SLO가 없으면 사용자가 스스로 기대치를 만든다.
+
+SLO를 공개하면 "서비스가 느리다"와 같은 근거 없는 불만을 줄이는 데도 도움이 된다.
 
 그 결과:
 
@@ -164,6 +175,8 @@ SLA는 business와 product decision에 가깝기 때문이다.
 - SLA에 포함된 SLO를 위반하지 않도록 운영 지원
 
 Google Search는 일반 사용자와 명시적 SLA를 맺지 않지만, 그렇더라도 SLI와 SLO는 필요하다.
+
+Search가 unavailable하면 명시적 SLA penalty는 없더라도 **reputation 손상과 advertising revenue 감소**라는 실제 consequence가 있다. 반면 Google for Work와 같은 서비스는 사용자와 명시적 SLA를 가진다.
 
 ---
 
@@ -297,6 +310,8 @@ Latency에서는:
 
 Response time variance가 클수록 long-tail behavior가 사용자 경험에 더 영향을 준다.
 
+책에서는 사용자 연구를 인용해 사람들이 **response time variance가 큰 시스템보다 조금 느리더라도 더 일관된 시스템을 선호하는 경향**이 있다고 설명한다. 일부 SRE team은 99.9th percentile 같은 높은 percentile에 집중하기도 한다.
+
 ---
 
 ## 19. Statistical fallacies
@@ -411,6 +426,15 @@ Management는 monthly 또는 quarterly assessment를 볼 수 있다.
 
 # Choosing Targets
 
+SLO target 선택은 순수한 technical activity가 아니다. Product와 business implication을 함께 반영해야 하며, 다음과 같은 제약 안에서 product attribute 사이의 trade-off가 필요할 수 있다.
+
+- staffing
+- time to market
+- hardware availability
+- funding
+
+SRE는 이 논의에 참여해 각 선택지의 risk와 viability를 설명한다.
+
 ## 26. Target을 current performance에서 고르지 않는다
 
 현재 성능을 그대로 target으로 정하면 문제가 될 수 있다.
@@ -453,6 +477,8 @@ System attribute를 충분히 다룰 수 있을 만큼만 SLO를 정한다.
 System behavior를 배우면서 SLO definition과 target을 수정할 수 있다.
 
 처음에는 느슨한 target으로 시작해 점차 강화하는 편이, 너무 엄격한 target을 설정했다가 완화하는 것보다 낫다.
+
+SLO는 SRE와 product developer의 **업무 우선순위를 결정하는 주요 기준**이 되어야 한다. 좋은 SLO는 development team에 유용한 forcing function이지만, 지나치게 공격적인 SLO는 불필요한 heroic effort를 만들고 너무 느슨한 SLO는 나쁜 product로 이어질 수 있다.
 
 ---
 

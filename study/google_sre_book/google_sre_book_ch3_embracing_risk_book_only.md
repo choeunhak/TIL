@@ -57,6 +57,10 @@ SRE는 risk를 연속선으로 본다.
 
 이런 의미에서 availability target은 minimum이면서 maximum에 가깝게 취급된다.
 
+이 framing의 중요한 장점은 **risk를 명시적으로, 신중하게 감수할 수 있게 한다는 것**이다.
+
+책에서는 Search, Ads, Gmail, Photos 같은 서비스가 nonlinear risk continuum의 어디에 위치해야 하는지 cost/benefit 관점에서 판단한다고 설명한다.
+
 ---
 
 # Measuring Service Risk
@@ -156,6 +160,8 @@ Google은 흔히 quarterly availability target을 설정하고 이를 weekly 또
 서비스의 risk tolerance를 정하려면 SRE와 product owner가 business goal을 explicit engineering objective로 바꿔야 한다.
 
 Consumer service와 infrastructure service는 product ownership과 client 요구가 다르기 때문에 따로 접근한다.
+
+Consumer service의 경우 Search, Google Maps, Google Docs처럼 각각 product manager가 있는 서비스가 예로 제시된다. Product team은 사용자와 비즈니스를 이해하고 서비스의 reliability requirement를 논의하는 주요 주체다.
 
 ---
 

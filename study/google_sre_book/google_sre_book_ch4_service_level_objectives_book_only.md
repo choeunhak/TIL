@@ -6,9 +6,9 @@
 
 ## 1. 핵심 메시지
 
-서비스를 운영하려면 무엇을 중요하게 볼지, 또 그것을 어떻게 측정하고 판단할지부터 정해야 한다.
+서비스를 관리하려면 어떤 behavior가 중요한지, 그리고 그것을 어떻게 측정하고 평가할지를 이해해야 한다.
 
-Google SRE는 이를 설명할 때 다음 세 용어를 쓴다.
+Google SRE에서는 다음 개념을 사용한다.
 
 - SLI: Service Level Indicator
 - SLO: Service Level Objective
@@ -20,9 +20,9 @@ Google SRE는 이를 설명할 때 다음 세 용어를 쓴다.
 
 ## 2. SLI — Service Level Indicator
 
-SLI는 서비스 품질의 한 측면을 숫자로 나타낸 값이다.
+SLI는 제공되는 service level의 특정 측면을 정량적으로 측정한 값이다.
 
-대표적인 SLI는 다음과 같다.
+대표적인 SLI:
 
 - request latency
 - error rate
@@ -30,23 +30,23 @@ SLI는 서비스 품질의 한 측면을 숫자로 나타낸 값이다.
 - availability
 - durability
 
-원시 데이터는 정해 둔 측정 구간에 모아, 다음과 같은 방식으로 집계할 수 있다.
+Raw data는 measurement window 동안 수집한 뒤 다음과 같은 형태로 aggregate할 수 있다.
 
-- 비율
-- 평균
-- 백분위수
+- rate
+- average
+- percentile
 
-가능하면 SLI는 우리가 알고 싶은 서비스 품질을 직접 측정해야 한다.
+가능하면 SLI는 관심 있는 service level을 직접 측정해야 한다.
 
-직접 측정하기 어렵다면 대리 지표를 사용할 수 있다.
+하지만 직접 측정하기 어렵다면 proxy metric을 사용할 수 있다.
 
-예를 들어 사용자가 느끼는 지연 시간이 중요해도, 실제로는 서버 측 지연 시간만 측정할 수 있을 때가 있다.
+예를 들어 user-facing latency가 더 중요하더라도 실제로는 server-side latency만 측정할 수 있는 경우가 있다.
 
 ---
 
 ## 3. Availability
 
-가용성은 사용자가 서비스를 실제로 쓸 수 있는 비율이다.
+Availability는 서비스가 usable한 비율이다.
 
 많은 경우 다음처럼 정의한다.
 
@@ -60,20 +60,20 @@ Total well-formed requests
 
 이를 yield라고 부르기도 한다.
 
-스토리지 시스템에서는 가용성뿐 아니라 내구성도 중요한 SLI다.
+Storage system에서는 availability와 함께 durability도 중요한 SLI다.
 
-높은 가용성은 흔히 "nines"로 표현한다.
+High availability는 흔히 "nines"로 표현한다.
 
 - 99% → 2 nines
 - 99.999% → 5 nines
 
-책은 당시 Google Compute Engine의 공개 가용성 목표인 **99.95%**, 즉 "three and a half nines"를 예로 든다.
+책에서는 당시 Google Compute Engine의 공개 availability target으로 **99.95%**, 즉 "three and a half nines"를 예로 든다.
 
 ---
 
 ## 4. SLO — Service Level Objective
 
-SLO는 SLI가 만족해야 하는 목표값 또는 허용 범위다.
+SLO는 SLI가 만족해야 하는 목표값 또는 범위다.
 
 일반적인 형태:
 
@@ -97,23 +97,23 @@ Average search request latency < 100 ms
 
 ## 5. 모든 SLI에 SLO를 정할 수 있는 것은 아니다
 
-외부에서 들어오는 HTTP 요청의 QPS는 사용자 수요에 따라 달라지므로, 의미 있는 SLO를 정하기 어렵다.
+외부에서 들어오는 HTTP request의 QPS는 사용자 수요에 의해 결정되므로 의미 있는 SLO를 설정하기 어렵다.
 
-반면 요청 지연 시간은 시스템 설계와 운영으로 바꿀 수 있으므로 SLO를 세울 수 있다.
+반면 request latency는 시스템 설계와 운영으로 영향을 줄 수 있기 때문에 SLO를 설정할 수 있다.
 
-QPS와 지연 시간은 서로 영향을 준다. 특정 부하 임계점을 넘으면 성능이 급격히 무너질 수도 있다.
+QPS와 latency는 서로 영향을 줄 수 있으며, 특정 load threshold를 넘으면 performance cliff가 나타날 수 있다.
 
-책의 100ms 지연 시간 목표는 예시일 뿐이다. 다만 지연 시간이 길어질수록 사용자 이탈 가능성이 커진다는 점은 분명하다.
+책의 100 ms latency target은 임의의 예시지만, 일반적으로 낮은 latency가 더 좋고 사용자가 체감하는 latency가 일정 수준을 넘으면 사용자가 이탈할 수 있다는 점도 언급한다.
 
 ---
 
 ## 6. SLO를 공개하는 이유
 
-SLO를 공개하면 사용자가 서비스에 어느 정도를 기대해도 되는지 알 수 있다.
+SLO를 사용자에게 공개하면 서비스가 어떤 수준으로 동작할지에 대한 기대를 설정할 수 있다.
 
-명확한 SLO가 없으면 사용자가 제각각 기대치를 만든다.
+명확한 SLO가 없으면 사용자가 스스로 기대치를 만든다.
 
-SLO를 공개하면 서비스가 느리다는 막연한 불만을 줄이는 데도 도움이 된다.
+SLO를 공개하면 "서비스가 느리다"와 같은 근거 없는 불만을 줄이는 데도 도움이 된다.
 
 그 결과:
 
@@ -131,26 +131,26 @@ SLO를 공개하면 서비스가 느리다는 막연한 불만을 줄이는 데�
 
 Chubby는 Google의 distributed lock service다.
 
-Global Chubby는 실제 장애가 워낙 드물어, 서비스 책임자들이 Chubby는 절대 멈추지 않는다고 여기기 시작했다.
+Global Chubby는 실제 outage가 매우 드물었기 때문에 service owner들이 Chubby가 절대 down되지 않는다고 가정하기 시작했다.
 
-그 결과 Chubby를 쓰는 서비스 중에는 Chubby가 멈췄을 때 제대로 동작하지 않는 것들이 생겼다.
+그 결과 Chubby가 unavailable할 때 제대로 동작하지 않는 dependency가 생겼다.
 
-이를 해결하려고 SRE는 Chubby가 SLO를 지키되, 지나치게 크게 넘기지는 않도록 했다.
+이를 해결하기 위해 SRE는 Chubby가 SLO를 만족하지만 지나치게 초과하지 않도록 했다.
 
-분기 동안 실제 장애가 너무 적어 가용성이 목표보다 지나치게 높아지면, 의도적으로 통제된 장애를 만들었다.
+분기 동안 실제 failure가 충분히 발생하지 않아 availability가 target보다 너무 높으면 controlled outage를 의도적으로 발생시켰다.
 
-덕분에 서비스 책임자도 Chubby 장애를 실제로 처리할 수 있게 됐다.
+이렇게 함으로써 service owner가 Chubby failure를 실제로 처리하도록 만들었다.
 
 ---
 
 ## 8. SLA — Service Level Agreement
 
-SLA는 사용자와 서비스 제공자 사이의 명시적 또는 암묵적 약속이다. 여기에는 SLO를 지키거나 지키지 못했을 때의 결과도 담긴다.
+SLA는 사용자와 service provider 사이의 명시적 또는 암묵적인 contract이며, 포함된 SLO를 만족하거나 만족하지 못했을 때의 consequence를 포함한다.
 
 예:
 
-- 환불
-- 위약금
+- rebate
+- penalty
 
 SLO와 SLA를 구분하는 질문:
 
@@ -158,25 +158,25 @@ SLO와 SLA를 구분하는 질문:
 SLO를 만족하지 못하면 어떤 명확한 consequence가 발생하는가?
 ```
 
-명확한 결과가 없다면 대개 SLA가 아니라 SLO다.
+명확한 consequence가 없다면 대부분 SLA가 아니라 SLO다.
 
 ---
 
 ## 9. SRE와 SLA
 
-SRE는 보통 SLA 자체를 만드는 데 깊이 관여하지 않는다.
+SRE는 일반적으로 SLA 자체를 만드는 일에는 깊게 관여하지 않는다.
 
-SLA는 비즈니스와 제품 측의 결정에 더 가깝기 때문이다.
+SLA는 business와 product decision에 가깝기 때문이다.
 
 하지만 SRE는 다음에 관여한다.
 
 - SLI 정의
-- SLO를 객관적으로 측정하는 방법
-- SLA에 포함된 SLO를 지키도록 운영 지원
+- SLO를 objective하게 측정하는 방법
+- SLA에 포함된 SLO를 위반하지 않도록 운영 지원
 
-Google Search는 일반 사용자와 명시적 SLA를 맺지 않지만, 그래도 SLI와 SLO는 필요하다.
+Google Search는 일반 사용자와 명시적 SLA를 맺지 않지만, 그렇더라도 SLI와 SLO는 필요하다.
 
-Search가 멈추면 명시적인 SLA 위약금은 없어도 **평판 손상과 광고 매출 감소**라는 실제 손해가 생긴다. 반면 Google for Work 같은 서비스는 사용자와 명시적 SLA를 맺는다.
+Search가 unavailable하면 명시적 SLA penalty는 없더라도 **reputation 손상과 advertising revenue 감소**라는 실제 consequence가 있다. 반면 Google for Work와 같은 서비스는 사용자와 명시적 SLA를 가진다.
 
 ---
 
@@ -184,17 +184,17 @@ Search가 멈추면 명시적인 SLA 위약금은 없어도 **평판 손상과 �
 
 ## 10. What Do You and Your Users Care About?
 
-모니터링 시스템에서 볼 수 있는 모든 지표를 SLI로 삼아서는 안 된다.
+Monitoring system에서 추적 가능한 모든 metric을 SLI로 사용해서는 안 된다.
 
-사용자가 시스템에서 무엇을 원하는지 먼저 이해하고, 몇 개의 대표 지표만 골라야 한다.
+사용자가 시스템에서 무엇을 원하는지 이해한 뒤 몇 개의 대표 indicator를 선택해야 한다.
 
-지표가 너무 많으면 중요한 것에 집중하기 어렵고, 너무 적으면 중요한 시스템 동작을 놓칠 수 있다.
+Indicator가 너무 많으면 중요한 metric에 집중하기 어렵고, 너무 적으면 중요한 system behavior를 놓칠 수 있다.
 
 ---
 
 ## 11. User-facing serving systems
 
-대표적인 SLI는 다음과 같다.
+대표적인 SLI:
 
 - availability
 - latency
@@ -204,7 +204,7 @@ Search가 멈추면 명시적인 SLA 위약금은 없어도 **평판 손상과 �
 
 ## 12. Storage systems
 
-대표적인 SLI는 다음과 같다.
+대표적인 SLI:
 
 - latency
 - availability
@@ -214,7 +214,7 @@ Search가 멈추면 명시적인 SLA 위약금은 없어도 **평판 손상과 �
 
 ## 13. Big data systems
 
-데이터 처리 파이프라인에서는 다음이 중요하다.
+Data processing pipeline 같은 시스템에서는 다음이 중요하다.
 
 - throughput
 - end-to-end latency
@@ -225,37 +225,37 @@ Search가 멈추면 명시적인 SLA 위약금은 없어도 **평판 손상과 �
 
 ## 14. Correctness
 
-모든 시스템에서 정확성은 중요하다.
+모든 시스템은 correctness를 중요하게 봐야 한다.
 
 예:
 
-- 올바른 답을 반환했는가?
-- 올바른 데이터를 가져왔는가?
-- 올바르게 분석했는가?
+- 올바른 answer를 반환했는가?
+- 올바른 data를 가져왔는가?
+- 올바른 analysis를 수행했는가?
 
-정확성은 시스템 상태를 보여 주는 중요한 지표지만, 인프라 자체보다 시스템 안의 데이터 속성인 경우가 많다.
+Correctness는 system health의 중요한 indicator지만, infrastructure 자체보다 system 안의 data property인 경우가 많다.
 
 ---
 
 # Collecting Indicators
 
-## 15. 서버 측과 클라이언트 측 측정
+## 15. Server-side와 client-side measurement
 
-많은 지표는 서버 측에서 자연스럽게 수집할 수 있다.
+많은 indicator는 server-side에서 자연스럽게 수집할 수 있다.
 
 예:
 
-- 모니터링 시스템
-- 주기적인 로그 분석
-- HTTP 500 응답 비율
+- monitoring system
+- periodic log analysis
+- HTTP 500 response 비율
 
-하지만 일부 시스템은 클라이언트 측 계측이 필요하다.
+하지만 일부 시스템은 client-side instrumentation이 필요하다.
 
-서버 측 지표만 보면, 사용자에게는 영향을 주지만 서버에는 드러나지 않는 문제를 놓칠 수 있기 때문이다.
+Server-side metric만 보면 사용자에게 영향을 주지만 server에는 나타나지 않는 문제를 놓칠 수 있기 때문이다.
 
 ### Shakespeare 사례
 
-Shakespeare 검색 백엔드의 응답 지연 시간만 재면, 페이지 JavaScript 문제로 사용자가 오래 기다리는 상황을 놓칠 수 있다.
+Shakespeare search backend의 response latency만 측정하면 page JavaScript 문제로 인한 poor user latency를 놓칠 수 있다.
 
 이 경우 browser에서 page가 usable해질 때까지의 시간을 측정하는 것이 사용자 경험에 더 가깝다.
 
@@ -265,9 +265,9 @@ Shakespeare 검색 백엔드의 응답 지연 시간만 재면, 페이지 JavaSc
 
 ## 16. Aggregation의 한계
 
-원시 측정값을 집계하면 단순해지지만 중요한 정보가 가려질 수 있다.
+Raw measurement를 aggregate하면 단순해지지만 중요한 정보를 숨길 수 있다.
 
-책의 요청률 예:
+책의 request rate 예:
 
 ```text
 System A:
@@ -289,28 +289,28 @@ System B:
 
 ## 17. Average latency의 한계
 
-요청 지연 시간을 평균으로만 보면 꼬리 구간의 동작이 가려질 수 있다.
+Request latency를 average로만 보면 tail behavior를 숨길 수 있다.
 
 책의 Figure 4-1에서는 typical request가 약 50 ms에 처리되지만 일부 request는 약 20배 더 느리다.
 
-평균만 보고 모니터링과 알림을 설정하면 이런 꼬리 구간의 변화를 놓칠 수 있다.
+Average만 기반으로 monitoring과 alerting을 하면 이런 tail 변화가 보이지 않을 수 있다.
 
 ---
 
 ## 18. Percentile
 
-지표는 평균보다 분포와 백분위수로 보는 편이 유용할 때가 많다.
+Metric은 average보다 distribution과 percentile로 보는 것이 유용한 경우가 많다.
 
 Latency에서는:
 
-- 50백분위수 → 일반적인 경우
-- 99백분위수 또는 99.9백분위수 → 충분히 일어날 수 있는 최악의 경우
+- 50th percentile → typical case
+- 99th 또는 99.9th percentile → plausible worst case
 
 를 볼 수 있다.
 
-응답 시간의 편차가 클수록 긴 꼬리 구간이 사용자 경험에 더 큰 영향을 준다.
+Response time variance가 클수록 long-tail behavior가 사용자 경험에 더 영향을 준다.
 
-책은 사용자 연구를 인용해, 사람들이 **응답 시간 편차가 큰 시스템보다 조금 느리더라도 일관된 시스템을 선호하는 경향**이 있다고 설명한다. 일부 SRE 팀은 99.9백분위수처럼 높은 백분위수에 집중하기도 한다.
+책에서는 사용자 연구를 인용해 사람들이 **response time variance가 큰 시스템보다 조금 느리더라도 더 일관된 시스템을 선호하는 경향**이 있다고 설명한다. 일부 SRE team은 99.9th percentile 같은 높은 percentile에 집중하기도 한다.
 
 ---
 
@@ -331,20 +331,20 @@ Computer system의 data는 인위적인 제약 때문에 skewed되어 있는 경
 
 # Standardize Indicators
 
-## 20. SLI 정의 표준화
+## 20. SLI definition 표준화
 
-SLI의 공통 정의를 표준화하면 매번 처음부터 다시 정하지 않아도 된다.
+SLI의 공통 definition을 표준화하면 매번 처음부터 다시 정의할 필요가 없다.
 
-책은 다음을 템플릿 구성 요소로 제시한다.
+책에서는 다음을 example template 요소로 제시한다.
 
-- 집계 구간
-- 집계 지역
-- 측정 주기
-- 포함할 요청
-- 데이터 수집 방식
-- 데이터 접근 지연 시간
+- Aggregation interval
+- Aggregation region
+- Measurement frequency
+- Included requests
+- Data acquisition
+- Data-access latency
 
-자주 쓰는 지표마다 재사용 가능한 SLI 템플릿을 만들면, 각 SLI의 의미를 더 쉽게 이해할 수 있다.
+각 common metric에 reusable SLI template을 만들면 individual SLI의 의미를 더 쉽게 이해할 수 있다.
 
 ---
 
@@ -352,11 +352,11 @@ SLI의 공통 정의를 표준화하면 매번 처음부터 다시 정하지 않
 
 ## 21. 사용자 요구에서 시작
 
-SLO를 단순히 측정하기 쉬운 지표에서 출발해 정해서는 안 된다.
+SLO는 단순히 측정 가능한 metric에서 시작해서는 안 된다.
 
-먼저 사용자가 무엇을 중요하게 생각하는지 정하고, 그 동작을 측정할 지표를 골라야 한다.
+먼저 사용자가 무엇을 중요하게 생각하는지 정하고, 그 behavior를 측정할 indicator를 선택해야 한다.
 
-직접 측정하기 어렵다면 대리 지표를 쓸 수 있다.
+직접 측정하기 어렵다면 proxy를 사용할 수 있다.
 
 ---
 
@@ -380,7 +380,7 @@ will complete in less than 100 ms
 
 ## 23. 여러 target 사용
 
-성능 곡선의 형태가 중요하다면 여러 목표를 둘 수 있다.
+Performance curve의 형태가 중요하다면 여러 target을 지정할 수 있다.
 
 예:
 
@@ -394,7 +394,7 @@ will complete in less than 100 ms
 
 ## 24. Workload별 SLO
 
-사용자 워크로드가 서로 다르면 워크로드 종류마다 다른 목표를 정할 수 있다.
+사용자 workload가 서로 다르면 workload class마다 다른 objective를 설정할 수 있다.
 
 책의 예:
 
@@ -418,85 +418,85 @@ SLO를 100% 시간 동안 만족시키겠다는 목표는 현실적이지도 바
 - deployment rate 감소
 - 비싸고 지나치게 보수적인 solution
 
-대신 SLO를 지키지 못해도 되는 비율인 오류 예산을 두고, 이를 매일 또는 매주 추적할 수 있다.
+대신 SLO를 miss할 수 있는 비율인 error budget을 허용하고 daily 또는 weekly basis로 추적할 수 있다.
 
-경영진은 월간 또는 분기별 평가를 보면 된다.
+Management는 monthly 또는 quarterly assessment를 볼 수 있다.
 
 ---
 
 # Choosing Targets
 
-SLO 목표를 정하는 일은 순수한 기술 활동이 아니다. 제품과 비즈니스에 미칠 영향을 함께 고려해야 하고, 다음과 같은 제약 속에서 제품 특성 사이의 균형을 잡아야 할 수도 있다.
+SLO target 선택은 순수한 technical activity가 아니다. Product와 business implication을 함께 반영해야 하며, 다음과 같은 제약 안에서 product attribute 사이의 trade-off가 필요할 수 있다.
 
-- 인력
-- 출시 시점
-- 하드웨어 확보 가능성
-- 예산
+- staffing
+- time to market
+- hardware availability
+- funding
 
-SRE는 이 논의에 참여해 각 선택지의 리스크와 실현 가능성을 설명한다.
+SRE는 이 논의에 참여해 각 선택지의 risk와 viability를 설명한다.
 
-## 26. 현재 성능만 보고 목표를 정하지 않는다
+## 26. Target을 current performance에서 고르지 않는다
 
 현재 성능을 그대로 target으로 정하면 문제가 될 수 있다.
 
-현재 성능이 특별한 노력으로 겨우 유지되는 수준이거나, 큰 재설계 없이는 개선하기 어려울 수 있기 때문이다.
+현재 성능이 heroic effort를 요구하거나 큰 redesign 없이는 개선하기 어려운 상태일 수 있기 때문이다.
 
 ---
 
-## 27. 단순하게 유지하기
+## 27. Keep it simple
 
-복잡한 SLI 집계는 시스템 성능의 변화를 가리고 이해도 어렵게 만든다.
+복잡한 SLI aggregation은 system performance의 변화를 숨길 수 있고 이해하기 어렵다.
 
 ---
 
-## 28. 절대적인 목표는 피하기
+## 28. Avoid absolutes
 
 다음과 같은 절대적 목표는 현실적이지 않다.
 
-- 부하가 무한히 늘어도 지연 시간이 늘지 않음
-- 항상 사용할 수 있음
+- load가 무한히 증가해도 latency가 늘지 않음
+- 항상 available함
 
 이런 목표는 구축과 운영 비용이 높고, 사용자에게 실제로 필요한 수준보다 과도할 수 있다.
 
 ---
 
-## 29. SLO는 가능한 적게 두기
+## 29. Have as few SLOs as possible
 
-시스템 특성을 충분히 다룰 수 있을 만큼만 SLO를 둔다.
+System attribute를 충분히 다룰 수 있을 만큼만 SLO를 정한다.
 
-특정 SLO를 근거로 우선순위에 관한 실제 결정을 바꿀 수 없다면, 그 SLO가 필요한지 다시 생각해야 한다.
+특정 SLO를 근거로 priority에 관한 실제 결정을 바꿀 수 없다면, 그 SLO가 필요한지 다시 생각해야 한다.
 
-모든 제품 특성을 SLO로 표현할 수 있는 것도 아니다.
+모든 product attribute를 SLO로 표현할 수 있는 것도 아니다.
 
 ---
 
-## 30. 완벽함은 나중에 다듬기
+## 30. Perfection can wait
 
 처음부터 완벽한 SLO를 만들 필요는 없다.
 
-시스템 동작을 이해해 가면서 SLO 정의와 목표를 수정할 수 있다.
+System behavior를 배우면서 SLO definition과 target을 수정할 수 있다.
 
-처음에는 다소 느슨한 목표로 시작해 점차 강화하는 편이, 지나치게 엄격한 목표를 세웠다가 완화하는 것보다 낫다.
+처음에는 느슨한 target으로 시작해 점차 강화하는 편이, 너무 엄격한 target을 설정했다가 완화하는 것보다 낫다.
 
-SLO는 SRE와 제품 개발팀의 **업무 우선순위를 정하는 중요한 기준**이어야 한다. 좋은 SLO는 개발팀이 중요한 일에 집중하게 돕지만, 너무 공격적이면 불필요한 무리수를 만들고 너무 느슨하면 제품 품질이 떨어질 수 있다.
+SLO는 SRE와 product developer의 **업무 우선순위를 결정하는 주요 기준**이 되어야 한다. 좋은 SLO는 development team에 유용한 forcing function이지만, 지나치게 공격적인 SLO는 불필요한 heroic effort를 만들고 너무 느슨한 SLO는 나쁜 product로 이어질 수 있다.
 
 ---
 
 # Control Measures
 
-## 31. SLI와 SLO로 만드는 제어 루프
+## 31. SLI와 SLO를 이용한 control loop
 
-책에서 설명하는 제어 루프는 다음과 같다.
+책에서 설명하는 control loop:
 
-1. 시스템의 SLI를 모니터링하고 측정한다.
-2. SLI를 SLO와 비교해 조치가 필요한지 판단한다.
-3. 조치가 필요하면 목표를 지키기 위해 무엇을 할지 정한다.
-4. 조치를 수행한다.
+1. System의 SLI를 monitor하고 measure한다.
+2. SLI를 SLO와 비교하고 action이 필요한지 결정한다.
+3. Action이 필요하면 target을 충족하기 위해 무엇을 해야 할지 판단한다.
+4. Action을 수행한다.
 
-예를 들어 요청 지연 시간이 늘어나 몇 시간 안에 SLO를 지키지 못할 것으로 보인다면:
+예를 들어 request latency가 증가해 몇 시간 안에 SLO를 miss할 것으로 보인다면:
 
-- 서버가 CPU 병목인지 확인하고
-- 부하를 분산하려고 서버를 추가할 수 있다.
+- server가 CPU-bound인지 test하고
+- load를 분산하기 위해 server를 추가할 수 있다.
 
 SLO가 없으면 언제 action을 취해야 할지 판단하기 어렵다.
 
@@ -506,37 +506,37 @@ SLO가 없으면 언제 action을 취해야 할지 판단하기 어렵다.
 
 ## 32. SLO는 사용자 기대를 설정한다
 
-SLO를 공개하면 기존 사용자와 잠재 사용자가 서비스 동작에 대해 현실적인 기대를 가질 수 있다.
+SLO를 공개하면 사용자와 prospective user가 service behavior에 대해 현실적인 기대를 가질 수 있다.
 
-사용자는 그 서비스가 자신의 사용 사례에 맞는지 판단할 수 있다.
+사용자는 해당 service가 자신의 use case에 적합한지 판단할 수 있다.
 
 책에서는 다음 예를 든다.
 
-- 매우 높은 내구성과 낮은 비용을 제공하지만 가용성은 조금 낮은 서비스
-- 사진 공유 웹사이트에는 맞지 않을 수 있음
-- 기록 보관 관리 시스템에는 맞을 수 있음
+- 매우 높은 durability와 low cost를 제공하지만 availability가 조금 낮은 service
+- photo-sharing website에는 적합하지 않을 수 있음
+- archival records management system에는 적합할 수 있음
 
 ---
 
 ## 33. Safety margin
 
-사용자에게 공개하는 SLO보다 더 엄격한 내부 SLO를 둘 수 있다.
+User에게 공개하는 SLO보다 더 엄격한 internal SLO를 둘 수 있다.
 
-이렇게 하면 만성적인 문제가 외부에 드러나기 전에 대응할 여유가 생긴다.
+이를 통해 chronic problem이 외부에 드러나기 전에 대응할 여유를 만들 수 있다.
 
 ---
 
 ## 34. Don't overachieve
 
-특히 인프라 서비스에서는 사용자가 문서에 적힌 SLO보다 실제 성능에 의존한다.
+특히 infrastructure service에서는 user가 문서에 적힌 SLO보다 실제 성능에 의존한다.
 
-실제 성능이 문서에 적힌 SLO보다 훨씬 좋으면, 사용자는 그 성능을 당연하게 받아들일 수 있다.
+실제 성능이 stated SLO보다 훨씬 좋으면 사용자는 그 성능을 당연하게 받아들일 수 있다.
 
 이를 막기 위해 다음과 같은 방법을 사용할 수 있다.
 
-- 의도적으로 가끔 시스템을 오프라인으로 만들기
-- 일부 요청을 제한하기
-- 부하가 낮아도 시스템이 더 빨라지지 않게 하기
+- 의도적으로 가끔 system을 offline으로 만들기
+- 일부 request를 throttle하기
+- light load에서도 system이 더 빨라지지 않도록 하기
 
 Chubby planned outage가 이 목적의 사례다.
 
@@ -544,17 +544,17 @@ Chubby planned outage가 이 목적의 사례다.
 
 ## 35. SLO와 투자 판단
 
-시스템이 기대를 얼마나 잘 충족하는지 알면, 어디에 더 투자할지 판단할 수 있다.
+System이 expectation을 얼마나 잘 충족하는지 알면 다음에 더 투자해야 할지 판단할 수 있다.
 
-- 속도
-- 가용성
-- 복원력
+- speed
+- availability
+- resilience
 
 반대로 서비스가 충분히 잘 동작한다면 다음에 시간을 사용할 수 있다.
 
-- 기술 부채 정리
-- 새로운 기능
-- 새로운 제품
+- technical debt 정리
+- 새로운 feature
+- 새로운 product
 
 ---
 
@@ -562,11 +562,11 @@ Chubby planned outage가 이 목적의 사례다.
 
 ## 36. SLA를 만들 때
 
-SLA를 만들 때는 비즈니스팀과 법무팀이 위반 시의 결과와 위약금을 정해야 한다.
+SLA를 만들 때는 business와 legal team이 breach의 consequence와 penalty를 정해야 한다.
 
-SRE는 SLA에 담긴 SLO를 실제로 얼마나 쉽게 달성할 수 있는지, 달성 가능성이 어느 정도인지 판단하는 데 도움을 준다.
+SRE는 SLA에 포함된 SLO를 실제로 얼마나 쉽게 또는 어렵게 달성할 수 있는지, 그리고 그 가능성이 어느 정도인지 판단하는 데 도움을 준다.
 
-사용자에게 공개하는 약속은 보수적으로 정하는 편이 좋다.
+사용자에게 공개하는 promise는 보수적으로 정하는 것이 좋다.
 
 대상이 넓을수록 잘못 정한 SLA를 나중에 변경하거나 삭제하기 어렵기 때문이다.
 
@@ -574,13 +574,13 @@ SRE는 SLA에 담긴 SLO를 실제로 얼마나 쉽게 달성할 수 있는지, 
 
 # 핵심 정리
 
-- SLI는 서비스 품질의 한 측면을 정량적으로 측정한 값이다.
+- SLI는 제공되는 service level의 한 측면을 정량적으로 측정한 값이다.
 - SLO는 SLI가 만족해야 하는 목표값 또는 범위다.
-- SLA는 SLO를 지키거나 지키지 못했을 때의 결과를 포함하는 약속이다.
-- 모든 지표를 SLI로 삼지 말고, 사용자가 중요하게 여기는 몇 개의 대표 지표를 골라야 한다.
-- 평균보다 분포와 백분위수가 중요한 경우가 많다.
-- SLI 정의를 표준화하면 의미가 명확해지고 재사용하기 쉽다.
-- SLO는 측정하기 쉬운 지표가 아니라 사용자가 원하는 동작에서 시작해야 한다.
-- SLO는 단순하고, 적고, 절대적이지 않아야 한다.
-- SLO는 시스템을 관리하는 제어 루프와 엔지니어링 우선순위의 기준이 된다.
-- 공개된 SLO는 사용자의 기대를 정하며, 실제 성능이 SLO를 지나치게 크게 넘는 것도 문제가 될 수 있다.
+- SLA는 SLO를 만족하거나 만족하지 못했을 때의 consequence를 포함하는 agreement다.
+- 모든 metric을 SLI로 사용하지 말고, 사용자가 중요하게 생각하는 몇 개의 representative indicator를 선택해야 한다.
+- Average보다 distribution과 percentile이 중요한 경우가 많다.
+- SLI definition을 표준화하면 의미가 명확해지고 재사용이 쉬워진다.
+- SLO는 측정하기 쉬운 metric이 아니라 사용자가 원하는 behavior에서 시작해야 한다.
+- SLO는 단순하고, 적고, absolute하지 않아야 한다.
+- SLO는 system을 관리하는 control loop와 engineering priority의 기준이 된다.
+- 공개된 SLO는 user expectation을 설정하며, 실제 성능이 SLO를 지나치게 초과하는 것도 문제가 될 수 있다.

@@ -1,318 +1,953 @@
-# Chapter 5. GPU 기반 스토리지 I/O 최적화
+# Chapter 5. GPU-Based Storage I/O Optimizations --- 상세 정리
 
-> 출처: Chris Fregly, *AI Systems Performance Engineering*  
-> 범위: Chapter 5 — *GPU-Based Storage I/O Optimizations*
+> 출처: Chris Fregly, *AI Systems Performance Engineering*\
+> 범위: Chapter 5 --- GPU-Based Storage I/O Optimizations\
+> 목적: GPU가 스토리지와 입력 파이프라인을 기다리지 않도록 데이터 경로
+> 전체를 최적화한다.
 
-## 이 장이 다루는 문제
+## 0. 이 장의 핵심 문제
 
-AI 학습에서 GPU가 충분히 빠르더라도, 다음 배치를 스토리지에서 읽고 전처리해서 GPU 메모리에 넣는 경로가 느리면 GPU는 유휴 상태가 된다. 따라서 성능은 GPU 연산만이 아니라 아래 전체 경로의 처리량과 지연 시간으로 결정된다.
+GPU가 아무리 빨라도 입력 데이터가 늦게 도착하면 GPU는 계산을 하지 못하고
+기다린다.
 
-```text
-스토리지 → 파일시스템/네트워크 → CPU 데이터 로더·전처리 → H2D 전송 → GPU 연산
+``` text
+Storage
+  ↓
+Filesystem / Object Store / Network
+  ↓
+CPU Data Loader
+  ↓
+Decode / Tokenization / Augmentation
+  ↓
+Host Memory
+  ↓
+H2D Transfer
+  ↓
+GPU HBM
+  ↓
+GPU Compute
 ```
 
-이 장의 목표는 이 경로에서 복사, 작은 I/O, 대기, 불균형을 줄이고 I/O·전처리·GPU 연산을 겹치는 것이다.
+따라서 AI 시스템의 성능은 GPU FLOPS만으로 결정되지 않는다. 스토리지
+처리량, 파일 접근 패턴, CPU 전처리, host-to-device 전송까지 전체
+파이프라인이 GPU 소비 속도를 따라가야 한다.
 
----
+이 장의 반복되는 원칙은 다음과 같다.
 
-## 1. 빠른 스토리지와 데이터 지역성
-
-대규모 학습은 수 TB~PB 규모의 텍스트·이미지·오디오·비디오 데이터를 지속해서 읽는다. 필요한 스토리지 대역폭은 GPU 한 장 기준이 아니라 클러스터 전체의 합으로 계산해야 한다.
-
-```text
-필요한 총 읽기 대역폭
-= GPU 수 × GPU당 필요한 bytes/s
+``` text
+GPU를 굶기지 않는다.
+→ 데이터를 GPU 가까이에 둔다.
+→ 큰 단위로 효율적으로 읽는다.
+→ 불필요한 CPU memory copy를 줄인다.
+→ I/O / preprocessing / H2D / GPU compute를 겹친다.
+→ GPU 수가 늘면 input pipeline도 같이 scale-out한다.
+→ end-to-end profiling으로 실제 병목을 찾는다.
 ```
 
-예를 들어 GPU 한 장이 학습 중 200 MB/s를 필요로 하면, 8장은 약 1.6 GB/s가 필요하다. GPU 수가 늘어났는데 스토리지와 데이터 로더가 같은 속도라면 추가 GPU는 데이터를 기다리게 된다.
+------------------------------------------------------------------------
 
-### 데이터는 가능한 한 GPU 가까이에 둔다
+## 1. Fast Storage and Data Locality
 
-- 가장 가까운 위치: 같은 노드의 로컬 NVMe SSD
-- 다음 선택지: 같은 랙에서 짧은 네트워크 경로를 쓰는 NVMe-oF
-- 대규모 공유 스토리지: Lustre, GPFS/IBM Storage Scale 같은 병렬 파일시스템
-- 원격 객체 스토리지: 학습 전에 로컬 NVMe 또는 캐시 계층으로 스테이징
+대규모 학습은 TB\~PB 규모의 데이터를 지속적으로 읽는다. 중요한 것은 SSD
+하나의 최대 속도가 아니라 **모든 GPU가 요구하는 aggregate bandwidth**다.
 
-분산 학습에서는 데이터셋을 노드별로 미리 샤딩하고, 각 노드가 자기 로컬 샤드를 주로 읽게 하는 방식이 효과적이다. 네트워크를 통해 같은 데이터를 여러 노드가 반복해서 읽는 일을 줄일 수 있다. PyTorch `DistributedSampler`는 epoch마다 rank별로 서로 다른 샘플을 받도록 조정하는 데 사용된다.
+``` text
+필요한 총 스토리지 처리량
+≈ GPU 수 × GPU 한 장이 소비하는 데이터 속도
+```
 
-### 지역성만으로 충분하지 않은 이유
+예를 들어 GPU 하나가 200 MB/s를 필요로 한다면:
 
-로컬 디스크가 있어도 `DataLoader` worker 수가 부족하거나 CPU 전처리가 느리면 GPU는 기다린다. 반대로 worker를 너무 많이 늘리면 CPU 코어와 디스크 I/O를 서로 경쟁하게 된다. 따라서 worker 수, CPU 사용률, 디스크 처리량을 함께 측정해야 한다.
+``` text
+1 GPU   →   200 MB/s
+8 GPUs  → 1,600 MB/s ≈ 1.6 GB/s
+72 GPUs → 수십 GB/s 규모
+```
 
----
+GPU만 늘리고 스토리지 처리량이 그대로면 어느 순간 GPU를 추가해도
+throughput이 늘지 않는다.
 
-## 2. 순차 읽기와 랜덤 읽기
+### 데이터 지역성
 
-스토리지는 큰 연속 구간을 읽을 때 작은 랜덤 읽기보다 높은 처리량을 내는 경우가 많다.
+가능하면 데이터를 compute에 가깝게 둔다.
 
-### 작은 파일이 많은 데이터셋의 문제
+``` text
+가까움
+↑
+Local NVMe
+Rack-local NVMe-oF
+Parallel filesystem / cache
+Remote shared storage
+Object storage
+↓
+멀어짐
+```
 
-수백만 개의 이미지 파일을 각각 열면 파일 열기, 메타데이터 조회, 작은 읽기 요청이 반복된다. 이때 병목은 전송 대역폭이 아니라 요청당 고정 비용과 랜덤 접근 지연 시간이 된다.
+물리적으로 가까우면 network hop과 공유 자원 경쟁을 줄이고 성능 변동도
+줄일 수 있다.
 
-가능하면 많은 샘플을 큰 shard 파일로 묶는다.
+### 노드별 데이터 sharding
 
-- Arrow, TFRecord, Parquet
-- WebDataset의 tar shard
-- 여러 샘플을 담은 바이너리 또는 데이터베이스 파일
-- 객체 스토리지에서도 작은 object를 큰 object로 사전 병합
+분산 학습에서는 데이터셋을 노드별로 미리 나누는 방법을 사용할 수 있다.
 
-한 번의 읽기로 여러 샘플을 가져올 수 있고, 순차 접근과 read-ahead의 효과도 커진다.
+``` text
+100 TB dataset
 
-### 읽기 크기와 비동기 I/O
+Node 0 → local 10 TB
+Node 1 → local 10 TB
+...
+Node 9 → local 10 TB
+```
 
-- 4 KB 같은 작은 요청보다 1 MB 수준의 큰 요청이 요청당 오버헤드를 줄인다.
-- `DataLoader`의 버퍼 크기와 prefetch 크기를 실제 데이터 크기에 맞게 조정한다.
-- 순차 읽기에서는 OS read-ahead가 도움 되지만, 랜덤 읽기에는 효과가 제한적이다.
-- 랜덤 접근이 필요하면 여러 `pread()` 요청을 병렬화하거나 `io_uring`으로 요청을 묶어 제출한다.
+각 노드가 자기 로컬 shard를 주로 읽으면 동일 데이터를 여러 노드가 원격
+스토리지에서 반복해서 가져오는 일을 줄일 수 있다.
 
-`io_uring`은 등록 버퍼와 polling 등을 사용해 system call 오버헤드를 줄이고, 여러 I/O 요청을 동시에 제출해 지연 시간을 숨기는 데 쓸 수 있다.
+PyTorch `DistributedSampler`는 각 rank가 epoch마다 서로 다른 데이터
+slice를 처리하도록 조정하는 데 사용할 수 있다.
 
----
+### 지역성만 좋아도 끝나는 것은 아니다
 
-## 3. NVMe와 파일시스템 처리량 튜닝
+``` text
+NVMe는 빠름
+   ↓
+DataLoader worker 부족
+   ↓
+전처리 속도 부족
+   ↓
+GPU idle
+```
 
-### Linux 블록 I/O 계층
+반대로 worker를 무작정 늘리면 CPU core와 disk I/O contention이 증가한다.
+따라서 disk throughput, CPU utilization, worker 수를 같이 봐야 한다.
 
-현대 Linux NVMe는 멀티큐 블록 계층(`blk-mq`)을 사용해 여러 CPU 코어에 I/O를 분산한다. NVMe에서는 보통 기본 설정이 적절하지만 다음은 확인할 가치가 있다.
+------------------------------------------------------------------------
 
-- I/O scheduler: `/sys/block/<device>/queue/scheduler`
-- 빠른 NVMe에서 일반적으로 `none` 또는 `mq-deadline`
-- 순차 스트리밍의 경우 read-ahead: `/sys/block/<device>/queue/read_ahead_kb`
-- PCIe lane 수와 SSD가 실제로 연결된 인터페이스의 대역폭
-- 단일 SSD가 부족하면 RAID 0 스트라이핑으로 여러 SSD의 처리량 결합
+## 2. Sequential Versus Random Read Patterns
 
-XFS는 대규모 동시 I/O를 위한 NVMe 서버에서 흔히 사용된다. `noatime` 마운트 옵션은 매 읽기마다 access time을 갱신하는 비용을 없앤다.
+스토리지는 일반적으로 작은 random read를 반복하는 것보다 큰 contiguous
+read에서 높은 throughput을 낸다.
 
-### 페이지 캐시와 메모리 적재
+### 작은 파일이 많은 경우
 
-Linux page cache는 최근 읽은 데이터를 RAM에 보관한다. 데이터셋이 RAM보다 훨씬 크면 캐시가 계속 교체되어 이점이 작을 수 있다. 반대로 데이터 전체 또는 상당 부분이 CPU 메모리나 Grace Blackwell의 통합 메모리에 들어가면 시작 시 적재해 디스크 I/O를 크게 줄일 수 있다.
+``` text
+image1.jpg
+image2.jpg
+image3.jpg
+...
+수백만 개
+```
 
-PB급 데이터셋은 모두 올려둘 수 없으므로, 이 경우에는 스트리밍 I/O 자체를 최적화해야 한다.
+각 파일마다 다음 비용이 반복된다.
 
-### PyTorch 데이터 로더의 기본 조정점
+``` text
+open
+→ metadata lookup
+→ small read
+→ close
+```
 
-```python
+이 경우 순수한 디스크 bandwidth보다 request당 overhead와 metadata 처리
+비용이 병목이 될 수 있다.
+
+### 큰 shard로 묶기
+
+책에서 제시하는 방향은 여러 sample을 큰 container/shard에 묶는 것이다.
+
+-   Arrow
+-   TFRecord
+-   Parquet
+-   WebDataset tar
+-   binary/database container
+
+``` text
+작은 파일 수백만 개
+        ↓
+큰 shard 여러 개
+        ↓
+sequential read / read-ahead 효율 증가
+```
+
+### I/O 크기와 concurrency
+
+작은 4 KB 요청을 계속 보내는 것보다 큰 요청을 사용하는 편이 request
+overhead를 줄이는 데 유리하다. 순차 스트리밍에서는 Linux read-ahead를
+키우는 것도 도움이 될 수 있다.
+
+random access가 필요하다면 여러 `pread()`를 병렬화하거나 `io_uring`을
+사용해 여러 I/O를 동시에 제출하여 latency를 숨길 수 있다.
+
+------------------------------------------------------------------------
+
+## 3. Tuning NVMe and Filesystem for Throughput
+
+### Linux NVMe / block I/O
+
+NVMe는 Linux의 multiqueue block layer(`blk-mq`)를 사용한다.
+
+확인할 항목:
+
+``` text
+/sys/block/<device>/queue/scheduler
+/sys/block/<device>/queue/read_ahead_kb
+```
+
+빠른 NVMe에서는 `none` 또는 `mq-deadline` 같은 scheduler가 사용될 수
+있다.
+
+큰 파일을 순차 스트리밍한다면 read-ahead를 기본값보다 크게 잡아 syscall
+overhead를 줄이고 pipeline을 유지할 수 있다.
+
+### PCIe가 병목일 수도 있다
+
+SSD 자체가 빠르더라도 PCIe lane이나 연결 세대가 충분하지 않으면 SSD
+성능을 다 쓰지 못한다.
+
+``` text
+NVMe SSD
+   ↓
+PCIe
+   ↓
+CPU / GPU path
+```
+
+단일 SSD로 처리량이 부족하면 여러 SSD를 RAID 0으로 stripe하여 aggregate
+throughput을 높이는 방법도 있다.
+
+### filesystem
+
+대규모 동시 I/O 환경에서는 XFS 등이 사용될 수 있다. `noatime`을 사용하면
+read 때마다 access time을 기록하는 추가 write를 줄일 수 있다.
+
+### Linux page cache
+
+``` text
+Disk → RAM page cache → Application
+```
+
+최근 읽은 데이터가 RAM에 남아 있으면 재읽기가 빨라진다.
+
+하지만 dataset이 RAM보다 훨씬 크면 cache entry가 계속 교체되면서 cache
+thrashing이 발생할 수 있다.
+
+반대로 dataset 전체 또는 상당 부분을 CPU memory나 unified memory에 올릴
+수 있다면 startup 시 preload하여 disk I/O를 줄일 수 있다.
+
+------------------------------------------------------------------------
+
+## 4. PyTorch DataLoader 튜닝
+
+대표적인 구성:
+
+``` python
 DataLoader(
     dataset,
     num_workers=N,
     pin_memory=True,
     persistent_workers=True,
-    prefetch_factor=...,  # num_workers > 0일 때 worker당 미리 준비할 batch 수
+    prefetch_factor=...
 )
+```
 
-# pinned host memory에서 GPU로 비동기 전송
+GPU 전송:
+
+``` python
 batch = batch.to(device, non_blocking=True)
 ```
 
-- `num_workers`: 읽기·decode·전처리를 병렬화한다. 적정값은 실측으로 찾는다.
-- `pin_memory=True`: H2D DMA에 쓸 page-locked host memory를 사용한다.
-- `non_blocking=True`: pinned memory를 소스로 할 때 H2D 전송을 비동기로 실행할 수 있다.
-- `persistent_workers=True`: epoch마다 worker를 다시 만들지 않는다.
-- `prefetch_factor`: I/O가 순간적으로 느려질 때 큐가 비는 것을 막지만, 너무 높으면 host memory를 많이 사용한다.
+### `num_workers`
 
-pinned memory를 크게 사용할 때는 `ulimit -l` 또는 컨테이너의 `memlock` 제한도 확인해야 한다.
+여러 process가 동시에 read/decode/preprocess를 수행한다.
 
----
+``` text
+worker 적음
+→ GPU가 data를 기다림
 
-## 4. NVIDIA GPUDirect Storage(GDS)
+worker 적절
+→ pipeline 유지
 
-### 기존 경로와 GDS 경로
-
-일반적인 경로에서는 데이터가 먼저 SSD에서 CPU 메모리로 오고, 이후 CUDA 전송으로 GPU HBM으로 복사된다.
-
-```text
-일반 경로: SSD/NAS → CPU 메모리 → GPU HBM
-GDS 경로 : SSD/NVMe-oF → GPU HBM
+worker 너무 많음
+→ CPU / storage contention
 ```
 
-GDS는 스토리지 또는 네트워크 스토리지와 GPU 메모리 사이의 DMA 경로를 만들어 host memory bounce buffer를 없앤다. CPU가 I/O를 설정하고 제어하는 역할까지 없어지는 것은 아니다.
+정답은 고정값이 아니라 workload별 측정으로 찾아야 한다.
 
-- GPUDirect RDMA: 네트워크 ↔ GPU DMA 최적화
-- GDS: 스토리지 ↔ GPU DMA 최적화
+### `pin_memory=True`
 
-둘 다 CPU 메모리를 중간 복사 버퍼로 쓰지 않게 하지만, CPU의 orchestration은 계속 필요하다.
+page-locked host memory를 사용한다. GPU DMA가 host memory에서 GPU로
+데이터를 옮길 때 유리하다.
 
-### 요구 사항과 API
+### `non_blocking=True`
 
-GDS에는 GPU, NVIDIA driver/CUDA Toolkit, DMA를 지원하는 스토리지·파일시스템 조합이 필요하다. 대표적으로 로컬 NVMe, NVMe-oF, RDMA 기반 NFS, 일부 병렬 파일시스템이 해당한다. 애플리케이션은 `cuFile` API를 사용하며, `cuFileRead` 또는 `cuFileReadAsync`로 GDS 경로를 이용한다.
+pinned memory가 source일 때 asynchronous H2D transfer를 활용할 수 있다.
 
-- 가능하면 `O_DIRECT`를 사용해 page cache를 우회하고 직접 DMA 경로를 사용한다.
-- 정렬(alignment)이 맞지 않으면 추가 복사가 생기거나 처리량이 낮아질 수 있다.
-- GPU device buffer는 `cuFile`에 등록되고, `nvidia-fs` kernel driver가 스토리지/NIC와 GPU 메모리의 DMA를 조율한다.
-- `cuFileReadAsync`/`cuFileWriteAsync`는 CUDA stream과 결합해 I/O와 연산을 겹칠 수 있다.
+### `persistent_workers=True`
 
-### 언제 효과가 큰가
+epoch이 바뀔 때 worker process를 반복해서 생성하는 비용을 줄인다.
 
-CPU가 이미 전송을 충분히 감당한다면 처리량 이득은 작을 수 있다. 반면 많은 `memcpy`로 CPU가 포화됐거나, 작은 batch를 매우 높은 빈도로 공급해야 하는 경우에는 CPU 사용률과 복사 단계를 줄여 효과가 커질 수 있다. GDS의 이득은 I/O 크기, queue depth, NIC, 파일시스템에 따라 다르므로 반드시 같은 조건에서 측정한다.
+### `prefetch_factor`
 
-### `gdsio`로 비교 측정
+worker가 앞으로 사용할 batch를 미리 준비한다.
 
-CUDA GDS 도구의 `gdsio`로 CPU 경로와 GDS 경로를 동일한 파일·I/O 크기·worker 수에서 비교한다.
+너무 작으면 queue가 비고 GPU가 기다릴 수 있고, 너무 크면 host memory
+사용량이 커진다.
 
-```bash
-# -x 2: CPU-mediated transfer 경로
-/usr/local/cuda/gds/tools/gdsio -f /mnt/data/large_file \
+------------------------------------------------------------------------
+
+## 5. NVIDIA GPUDirect Storage (GDS)
+
+GDS의 핵심은 **storage → GPU 경로에서 host memory bounce buffer를
+제거하는 것**이다.
+
+### 일반적인 경로
+
+``` text
+NVMe / Storage
+      ↓
+CPU Host Memory
+      ↓
+CUDA H2D copy
+      ↓
+GPU HBM
+```
+
+### GDS 경로
+
+``` text
+NVMe / NVMe-oF / supported storage
+              ↓
+        DMA data path
+              ↓
+           GPU HBM
+```
+
+CPU가 완전히 사라지는 것은 아니다. CPU는 I/O 설정과 orchestration을 계속
+담당한다. 없어지는 것은 데이터가 CPU memory를 중간 staging buffer로
+반드시 통과해야 하는 경로다.
+
+### GPUDirect RDMA와의 차이
+
+``` text
+GPUDirect RDMA
+Network ↔ GPU memory
+
+GPUDirect Storage
+Storage ↔ GPU memory
+```
+
+둘 다 host memory bounce buffer를 줄이는 방향이지만 대상이 다르다.
+
+### GDS 구성 요소
+
+-   NVIDIA GPU
+-   NVIDIA driver / CUDA Toolkit
+-   GDS를 지원하는 storage/filesystem stack
+-   `cuFile`
+-   `nvidia-fs`
+-   적절한 direct I/O / DMA 경로
+
+`cuFileRead`를 사용하면 파일에서 GPU device buffer로 데이터를 읽을 수
+있다.
+
+비동기 API:
+
+``` text
+cuFileReadAsync
+cuFileWriteAsync
+```
+
+CUDA stream과 결합하여 storage I/O와 다른 작업을 overlap할 수 있다.
+
+### `O_DIRECT`와 alignment
+
+가능하면 `O_DIRECT`를 이용해 OS page cache를 우회하고 direct DMA path를
+사용한다.
+
+alignment가 맞지 않으면 내부적으로 추가 copy가 생기거나 throughput이
+낮아질 수 있다.
+
+### 언제 GDS가 큰 효과를 내나?
+
+``` text
+CPU가 memcpy 때문에 포화
+        ↓
+GDS로 host bounce 제거
+        ↓
+CPU load 감소
+        ↓
+CPU를 preprocessing 등에 사용 가능
+```
+
+반대로 CPU가 원래 충분히 여유롭고 storage 자체가 병목이라면 GDS를 넣어도
+end-to-end throughput 차이가 작을 수 있다.
+
+따라서 GDS는 "켜면 무조건 빨라지는 옵션"이 아니라 실제 workload에서
+검증해야 한다.
+
+------------------------------------------------------------------------
+
+## 6. Checkpointing GPU State with `cuda-checkpoint`
+
+`cuda-checkpoint`는 실행 중인 CUDA process의 GPU 상태를 CPU process
+checkpoint 도구인 CRIU 등과 함께 저장하고 복원하는 방식이다.
+
+대략적인 suspend 과정:
+
+``` text
+1. CUDA driver entry point lock
+2. outstanding GPU work drain
+3. GPU device memory → host allocation
+4. GPU resource release
+5. CRIU 등이 CPU process state 저장
+```
+
+복원:
+
+``` text
+GPU reacquire
+→ device memory 원래 주소에 복원
+→ CUDA context / stream 등 복원
+→ unlock
+→ 실행 재개
+```
+
+중요한 점:
+
+``` text
+cuda-checkpoint
+≠ PyTorch state_dict checkpoint
+≠ sharded model checkpoint
+```
+
+서로 대체 관계가 아니라 보완 관계다.
+
+`cuda-checkpoint`는 long-running job의 preemption, migration, fault
+tolerance에 활용할 수 있다.
+
+또한 GDS와 달리 checkpoint path는 GPU memory를 storage로 바로 DMA하는
+방식이 아니다.
+
+``` text
+GPU memory
+   ↓
+Host memory
+   ↓
+CRIU checkpoint image
+```
+
+따라서 사용 중인 VRAM 크기와 GPU↔host link bandwidth가 suspend 시간에
+영향을 준다.
+
+------------------------------------------------------------------------
+
+## 7. Measuring GDS with `gdsio`
+
+NVIDIA는 GDS 경로를 benchmark하기 위한 `gdsio`를 제공한다.
+
+CPU-mediated baseline 예:
+
+``` bash
+/usr/local/cuda/gds/tools/gdsio \
+  -f /mnt/data/large_file \
   -d 0 -w 4 -s 10G -i 1M -I 0 -x 2
+```
 
-# -x 0: GDS 경로
-/usr/local/cuda/gds/tools/gdsio -f /mnt/data/large_file \
+GDS path:
+
+``` bash
+/usr/local/cuda/gds/tools/gdsio \
+  -f /mnt/data/large_file \
   -d 0 -w 4 -s 10G -i 1M -I 0 -x 0
 ```
 
-처리량뿐 아니라 평균 지연 시간, CPU 사용률, 실제 학습 step time까지 비교해야 한다. microbenchmark가 빨라도 전체 파이프라인이 다른 구간에서 막히면 학습 성능은 달라지지 않을 수 있다.
+책의 예시에서는 동일한 설정에서 CPU-mediated path와 GDS path의
+throughput과 latency를 비교한다.
 
----
+하지만 microbenchmark만 보면 안 된다.
 
-## 5. GPU 상태 checkpoint와 스토리지
+``` text
+gdsio throughput
+CPU utilization
+I/O latency
+실제 training step time
+GPU idle time
+```
 
-`cuda-checkpoint`는 Linux에서 실행 중인 CUDA 프로세스의 GPU 상태를 CPU 프로세스 checkpoint 도구(CRIU 등)와 함께 저장·복원하는 경로다.
+까지 같이 봐야 한다.
 
-1. CUDA driver 진입점을 잠그고 제출된 GPU 작업이 끝날 때까지 기다린다.
-2. device memory를 driver가 관리하는 host allocation으로 복사한다.
-3. GPU 리소스를 해제하고, CPU 측 checkpoint 도구가 프로세스 상태를 저장한다.
-4. 복원 시 GPU를 다시 획득하고, device memory와 CUDA context·stream 등을 되살린다.
+------------------------------------------------------------------------
 
-이 기능은 장시간 작업의 preemption, migration, fault tolerance에 유용하다. 다만 학습 프레임워크의 `state_dict` 또는 sharded checkpoint를 대체하는 기능은 아니다. 특히 이 checkpoint 경로는 GDS처럼 GPU 메모리에서 스토리지로 직접 DMA하지 않고, suspend 시 GPU 메모리 이미지가 먼저 host memory로 이동한다. 따라서 사용 중인 VRAM 크기와 host link 대역폭이 suspend 시간을 좌우한다.
+## 8. DeepSeek Fire-Flyer File System (3FS)
 
----
+3FS는 DeepSeek이 AI workload를 위해 만든 분산 filesystem이다.
 
-## 6. 분산 파일시스템과 객체 스토리지
+책에서 강조하는 출발점은 AI workload의 대규모 random read다.
+
+일반적인 page cache가 이런 access pattern에서는 효과가 떨어지거나 cache
+관리 자체가 낭비가 될 수 있다.
+
+3FS는 direct file I/O를 사용하고 page cache 개입을 줄이는 방향을 취한다.
+
+### 3FS 주요 구성 요소
+
+``` text
+Cluster Manager
+Metadata Service
+Storage Service
+Client
+```
+
+이 구성 요소들은 InfiniBand 또는 RoCE 같은 RDMA-capable fabric으로
+연결된다.
+
+``` text
+Client
+  ↓
+RDMA fabric
+  ↓
+Storage Service
+  ↓
+NVMe
+```
+
+metadata는 여러 노드에 shard/replicate되어 scale-out을 지원한다.
+
+### GDS와의 관계
+
+3FS가 보여주는 큰 방향은 **AI workload에 맞게 storage layer 자체를
+codesign**하는 것이다.
+
+다만 FUSE 기반 userspace filesystem은 GDS가 요구하는 kernel-level
+filesystem integration과 `O_DIRECT` semantics 때문에 그대로 true GDS
+path를 제공할 수 없다.
+
+책은 GDS가 필요한 경우 NVMe, NVMe-oF, BeeGFS, WekaFS, IBM Storage Scale,
+VAST 등 GDS-enabled kernel filesystem client를 예로 든다.
+
+------------------------------------------------------------------------
+
+## 9. Distributed / Parallel Filesystems and Object Stores
 
 ### NFS
 
-단일 NFS 서버는 여러 노드가 동시에 읽으면 병목이 되기 쉽다. 소규모 클러스터에는 편하지만 대규모 학습에는 보통 병렬 파일시스템이나 캐시 계층이 더 적합하다.
+NFS는 편리하지만 많은 노드가 한 서버를 동시에 읽으면 server
+NIC/storage가 병목이 될 수 있다.
 
-- 서버 NIC와 디스크가 충분히 빠른지 확인한다.
-- 여러 NFS 서버로 데이터셋을 분할할 수 있다.
-- `rsize`/`wsize`를 크게 잡아 요청당 오버헤드를 줄인다.
-- client mount 옵션과 attribute cache도 실제 일관성 요구 사항 안에서 조정한다.
-
-### 객체 스토리지
-
-S3 같은 object store를 학습 중 매번 직접 읽으면 지연 시간과 요청 수가 문제가 될 수 있다.
-
-- 학습 전 로컬 NVMe로 스테이징한다.
-- FSx for Lustre 같은 캐시 계층을 사용한다.
-- 큰 range request와 다중 스레드 전송을 사용한다.
-- `s5cmd`, 최적화된 SDK 등 병렬 전송 도구를 사용한다.
-
-### 병렬 파일시스템
-
-Lustre, GPFS, Ceph 같은 병렬 파일시스템은 여러 storage target이 동시에 파일 일부를 제공하도록 설계된다. 큰 shard 파일을 여러 target에 stripe하면 읽기 처리량을 합산할 수 있다.
-
-모니터링에서 특정 storage node만 과열되어 있으면 샤딩 또는 stripe 설정이 고르지 않을 가능성이 크다. 데이터 분포와 요청 분포를 함께 확인해야 한다.
-
----
-
-## 7. 복제와 압축의 트레이드오프
-
-### 노드별 복제
-
-데이터셋을 각 compute node의 로컬 저장소에 복제하면 네트워크 읽기를 없앨 수 있다. 성능은 좋지만 저장 공간과 배포·갱신 비용이 늘어난다.
-
-### 압축 저장과 해제
-
-압축 데이터는 저장소에서 읽어야 할 바이트 수를 줄인다. 대신 CPU 또는 GPU에서 decode/decompression 비용이 생긴다.
-
-- I/O 병목이고 CPU/GPU에 여유가 있으면 유리하다.
-- decompression이 새 병목이 되면 이득이 사라진다.
-- `nvJPEG`는 이미지 decode를 GPU로 옮길 수 있다.
-- 최신 GPU의 decompression engine은 LZ4, Snappy, Deflate 같은 형식의 해제를 가속할 수 있다.
-
-핵심은 "읽을 바이트 감소"와 "해제 비용 증가"의 합이 실제로 줄었는지 end-to-end로 검증하는 것이다.
-
----
-
-## 8. 데이터 파이프라인 전처리
-
-학습 중 데이터 로더가 하는 일은 단순 파일 읽기가 아니다.
-
-```text
-읽기 → parse/deserialization → decode → tokenization/augmentation → batch collate → H2D 전송
+``` text
+GPU Node 0 ─┐
+GPU Node 1 ─┤
+GPU Node 2 ─┼→ Single NFS Server
+GPU Node 3 ─┘
 ```
 
-### Python 병목 줄이기
+대규모 cluster에서는 단일 NFS server보다 parallel filesystem이나 cache
+layer가 적합할 수 있다.
 
-- worker process를 사용해 Python GIL 영향을 줄인다.
-- 샘플 하나씩 Python loop로 tokenization·변환하지 말고 batch/vectorized 연산을 우선한다.
-- Rust/C++ 기반 tokenizer와 라이브러리를 활용한다.
-- `collate_fn` 등을 이용해 tensor 단위로 묶어서 처리한다.
-- 디버그 로그나 비싼 CPU transform이 critical path에 들어가지 않게 한다.
+NFS tuning 예:
 
-### I/O·전처리·GPU 연산 겹치기
-
-이상적인 상태에서는 GPU가 batch N을 연산하는 동안 CPU worker가 batch N+1을 읽고 전처리해 pinned memory에 준비한다. 이후 별도 CUDA stream에서 N+1의 H2D 복사를 시작하고, 연산 stream은 복사 완료 event를 기다린 뒤 사용한다.
-
-중요한 것은 단순히 `non_blocking=True`를 붙이는 것이 아니라, source가 pinned memory이고 stream 간 의존성이 올바르게 설정되어 실제 overlap이 일어나는지 타임라인으로 확인하는 것이다.
-
-### GPU 전처리: NVIDIA DALI
-
-NVIDIA DALI는 이미지·비디오 decode, crop, resize, normalize 같은 작업을 GPU 또는 최적화된 C++ CPU 코드로 실행한다. CPU가 decode/augmentation으로 포화되고 GPU에 여유가 있는 입력 병목 워크로드에서 유용하다.
-
-하지만 GPU에서 decode한 결과를 다시 CPU로 보내 CPU transform을 수행하면 host-device-host 복사가 늘어 이점이 사라질 수 있다. GPU 친화적인 전처리는 GPU graph 안에 남기거나 CUDA 기반 라이브러리로 묶는 편이 좋다. CPU-only, DALI, 완전 GPU 기반 파이프라인을 같은 조건에서 비교한다.
-
-### 오프라인 데이터 준비: NeMo Curator
-
-NeMo Curator는 대규모 LLM/멀티모달 데이터셋의 정제, tokenization, shuffle, deduplication, 품질 필터링, shard 생성 등을 분산 처리하는 도구다.
-
-학습 전에 데이터를 일정한 형식과 크기의 큰 shard로 준비하면, 학습 중에는 원시 텍스트 처리와 무작위 작은 파일 접근을 줄일 수 있다. 여러 epoch의 runtime shuffle 비용이 크면 서로 다른 순서로 섞은 데이터 복사본을 미리 만드는 선택지도 있지만 저장 공간과 교환한다.
-
----
-
-## 9. 관측과 병목 분리
-
-### 계층별 도구
-
-- host I/O: `iostat`, `iotop`, `nvme-cli`, `perf`, eBPF
-- GPU 및 I/O: DCGM, Nsight Systems
-- GDS 타임라인: `nsys --trace=gds`, cuFile tracepoint
-- kernel 수준: Nsight Compute
-
-PyTorch에서 `next(data_iterator)` 시간은 Python 로더뿐 아니라 background prefetch와 H2D 복사까지 포함한, GPU가 다음 batch를 기다린 총시간이다.
-
-병목을 나누어 보려면 다음을 각각 측정한다.
-
-1. `num_workers=0`으로 두고 iterator pull 시간을 측정해 Python transform/로딩 비용을 본다.
-2. `.to("cuda")` 주변을 CUDA event 또는 Nsight Systems Copy lane으로 측정해 H2D 비용을 본다.
-3. 전체 GPU idle time과 비교한다.
-
-그 결과에 따라 worker·transform을 조정할지, pinned memory·인터커넥트·GDS를 조정할지 결정한다.
-
-### 통신 병목과 연산 병목 구분
-
-gradient all-reduce의 통신량은 보통 모델 파라미터 수에 따라 결정되며 batch size에 직접 비례하지 않는다. 따라서 batch size를 바꿔 compute만 증감시키고 NIC GB/s와 통신 시간 비율을 관찰할 수 있다.
-
-- batch를 줄여도 NIC 처리량이 같은 상한에 머물면 네트워크가 제한 요인일 가능성이 크다.
-- batch를 줄였을 때 NIC 처리량도 떨어지면 GPU compute가 NIC에 줄 데이터를 충분히 만들지 못하는 상태일 수 있다.
-
-Nsight Systems에서는 kernel 사이의 긴 빈 구간, NCCL 대기, H2D 대기를 보고, Nsight Compute에서는 개별 kernel의 memory/compute 효율을 본다.
-
----
-
-## 10. 지속적인 튜닝 절차
-
-성능 설정은 GPU 수, 데이터셋, CUDA/NCCL 버전, 스토리지 구성에 따라 달라진다. 한 번 맞춘 값으로 끝내지 않고 다음을 반복한다.
-
-```text
-기준선 설정 → 전체 타임라인 프로파일링 → 가설 수립 → 한두 가지 변경
-→ 재측정 → 좋은 설정 기록·자동화
+``` text
+rsize
+wsize
+noatime
+async
+attribute / lookup cache
 ```
 
-1. 단일 GPU에서 `samples/s`, step time, latency 기준선을 잡는다.
-2. 단일 노드 다중 GPU, 다중 노드로 단계적으로 확장한다.
-3. GPU 수가 N배인데 처리량이 N배에 못 미치면 CPU·I/O·네트워크·동기화 중 원인을 프로파일러로 분리한다.
-4. 한 번에 너무 많은 설정을 바꾸지 않는다.
-5. 정기 benchmark와 dashboard로 성능 회귀를 탐지한다.
-6. 확인된 환경 변수, 버전, topology 의존성을 코드·설정에 문서화한다.
+책에서는 큰 `rsize/wsize`를 사용해 request overhead를 줄이는 방향을
+설명한다.
 
----
+### Object Storage
 
-## 핵심 정리
+S3 같은 object store를 training critical path에서 sample 단위로 직접
+읽으면 latency와 request overhead가 문제가 될 수 있다.
 
-1. GPU를 늘릴 때 스토리지 대역폭, CPU 전처리, worker 수도 함께 늘려야 한다.
-2. 많은 작은 랜덤 읽기보다 큰 sequential shard 읽기가 일반적으로 유리하다.
-3. 데이터는 로컬 NVMe 또는 가까운 고속 스토리지에 두고 node별 shard를 우선 읽는다.
-4. GDS는 storage-to-GPU 경로에서 CPU memory bounce buffer를 제거하지만, 모든 환경에서 자동으로 빨라지는 것은 아니므로 측정이 필요하다.
-5. `num_workers`, prefetch, pinned memory, 비동기 H2D 전송을 조합해 다음 batch를 미리 준비한다.
-6. DALI·NeMo Curator 같은 도구는 online CPU 전처리를 줄이고 데이터 형식을 학습 친화적으로 만드는 데 쓴다.
-7. I/O, H2D, CPU transform, NCCL, GPU kernel을 분리해 관측하고, 전체 step time 기준으로 최적화 효과를 검증한다.
+대안:
+
+``` text
+Object Store
+    ↓ staging
+Local NVMe
+    ↓
+Training
+```
+
+또는:
+
+``` text
+Object Store
+    ↓
+FSx for Lustre 같은 cache
+    ↓
+GPU cluster
+```
+
+큰 range request와 parallel transfer를 사용하고 `s5cmd` 같은 병렬 도구를
+활용할 수 있다.
+
+### Parallel Filesystem
+
+Lustre, GPFS/IBM Storage Scale, Ceph 등의 목적은 여러 storage target을
+병렬로 사용해 aggregate throughput을 높이는 것이다.
+
+``` text
+Large shard
+ ├─ chunk → target 0
+ ├─ chunk → target 1
+ ├─ chunk → target 2
+ └─ chunk → target 3
+```
+
+stripe가 고르게 구성되지 않으면 특정 storage node만 과부하가 걸릴 수
+있으므로 node별 throughput과 request distribution을 같이 봐야 한다.
+
+------------------------------------------------------------------------
+
+## 10. Replication and Compression
+
+### 데이터 복제
+
+각 compute node에 dataset을 복제하면 remote read를 크게 줄일 수 있다.
+
+장점:
+
+``` text
+network I/O 감소
+local throughput 활용
+```
+
+비용:
+
+``` text
+storage capacity 증가
+dataset 배포 비용
+update 관리 비용
+```
+
+즉 저장 공간과 throughput의 trade-off다.
+
+### 압축
+
+압축하면 storage에서 읽는 byte 수가 줄어든다.
+
+``` text
+compressed data
+   ↓ fewer bytes from storage
+decompression
+   ↓
+training data
+```
+
+하지만 decompression CPU/GPU cost가 추가된다.
+
+따라서:
+
+``` text
+I/O bottleneck + compute 여유
+→ compression이 유리할 수 있음
+
+decompression bottleneck
+→ 이득 감소
+```
+
+이미지에서는 `nvJPEG` 등을 사용해 decode를 GPU로 옮길 수 있고, 최신
+GPU의 decompression 기능도 활용할 수 있다.
+
+핵심은 압축률 자체가 아니라 **end-to-end step time이 줄었는지**다.
+
+------------------------------------------------------------------------
+
+## 11. Tuning the Data Pipeline
+
+실제 input pipeline은 단순 read가 아니다.
+
+``` text
+read
+ ↓
+parse / deserialize
+ ↓
+decode
+ ↓
+tokenize / augment
+ ↓
+collate batch
+ ↓
+H2D
+ ↓
+GPU compute
+```
+
+어느 단계든 GPU 소비 속도보다 느리면 전체 pipeline을 제한한다.
+
+### Python overhead 줄이기
+
+-   worker process로 Python GIL 영향 줄이기
+-   sample 단위 Python loop보다 batch/vectorized 처리
+-   C++/Rust 기반 tokenizer 활용
+-   `collate_fn`에서 tensor 단위 처리
+-   critical path의 과도한 logging/transform 제거
+
+### overlap
+
+이상적인 pipeline:
+
+``` text
+시간 ───────────────────────────────→
+
+GPU       [ Compute Batch N       ]
+CPU              [ Load/Prep N+1 ]
+H2D                       [Copy N+1]
+GPU                               [Compute N+1]
+```
+
+GPU가 batch N을 계산하는 동안 다음 batch를 미리 준비한다.
+
+`non_blocking=True`만 넣는다고 자동으로 완벽한 overlap이 되는 것은
+아니다. source가 pinned memory인지, CUDA stream dependency가 올바른지,
+실제 timeline에서 overlap이 발생하는지를 확인해야 한다.
+
+------------------------------------------------------------------------
+
+## 12. Scale Out Workers as GPUs Scale Out
+
+GPU 수만 늘고 loader capacity가 그대로면 input pipeline이 새로운
+bottleneck이 된다.
+
+``` text
+GPU 1개 → worker N
+GPU 8개 → worker N 그대로
+              ↓
+      GPU들이 data 대기
+```
+
+따라서 GPU scale-out과 함께 다음도 같이 검토한다.
+
+``` text
+DataLoader workers
+CPU cores
+storage bandwidth
+network bandwidth
+prefetch capacity
+local cache
+```
+
+worker를 무한정 늘리는 것이 아니라 CPU와 storage contention이 생기기
+직전의 지점을 profiling으로 찾는다.
+
+------------------------------------------------------------------------
+
+## 13. NVIDIA DALI
+
+DALI는 이미지/비디오 등 multimodal preprocessing을 CPU 최적화 코드 또는
+GPU에서 수행할 수 있게 한다.
+
+예:
+
+``` text
+decode
+crop
+resize
+normalize
+augmentation
+```
+
+CPU decode/augmentation가 병목이고 GPU에 여유가 있다면 preprocessing을
+GPU로 옮겨 CPU bottleneck을 줄일 수 있다.
+
+다만:
+
+``` text
+GPU decode
+  ↓
+CPU로 다시 복사
+  ↓
+CPU transform
+  ↓
+GPU로 다시 복사
+```
+
+같은 경로는 오히려 host-device copy를 늘릴 수 있다.
+
+가능하면 GPU 친화적인 pipeline은 GPU 안에서 이어지도록 구성한다.
+
+------------------------------------------------------------------------
+
+## 14. NVIDIA NeMo Curator
+
+NeMo Curator는 대규모 LLM/multimodal dataset을 학습 전에 준비하는 데
+사용된다.
+
+대표 작업:
+
+-   cleaning
+-   filtering
+-   deduplication
+-   tokenization
+-   shuffle
+-   shard 생성
+-   품질 관리
+
+핵심 아이디어:
+
+``` text
+Training 중 매 epoch 비싼 preprocessing
+               ↓
+가능한 작업을 offline으로 이동
+               ↓
+training critical path 단순화
+```
+
+즉 storage layout과 data format 자체를 학습 친화적으로 미리 만들어 둔다.
+
+------------------------------------------------------------------------
+
+## 15. Monitoring Storage I/O
+
+병목은 계층별로 나눠서 본다.
+
+### Host / storage
+
+-   `iostat`
+-   `iotop`
+-   `nvme-cli`
+-   `perf`
+-   eBPF
+
+### GPU / timeline
+
+-   DCGM
+-   Nsight Systems
+-   Nsight Compute
+
+### GDS
+
+-   `nsys --trace=gds`
+-   cuFile 관련 trace
+
+관찰할 것:
+
+``` text
+Disk busy?
+CPU preprocessing busy?
+DataLoader queue empty?
+H2D copy 오래 걸림?
+GPU kernel 사이에 빈 구간?
+NCCL 대기?
+```
+
+------------------------------------------------------------------------
+
+## 16. Communication-bound와 Compute-bound 구분
+
+분산 학습에서 gradient all-reduce 양은 주로 model parameter 수에 영향을
+받고, batch size에 직접 비례하지 않는다.
+
+따라서 batch size를 바꿔 compute 양을 변화시키면서 NIC throughput과
+communication time을 비교하면 병목을 추론할 수 있다.
+
+``` text
+batch 감소
++ NIC가 계속 최대치 근처
+→ network/communication bottleneck 가능성
+
+batch 감소
++ NIC throughput도 같이 감소
+→ compute가 communication을 충분히 공급하지 못하는 상황 가능성
+```
+
+Nsight Systems에서는 kernel 사이의 빈 구간, NCCL, H2D wait를 보고 Nsight
+Compute에서는 kernel 자체의 compute/memory efficiency를 본다.
+
+------------------------------------------------------------------------
+
+## 17. Continuous Profiling and Tuning Workflow
+
+책이 반복해서 강조하는 방식은 한 번에 모든 것을 바꾸는 것이 아니다.
+
+``` text
+Baseline
+  ↓
+Profile
+  ↓
+Bottleneck hypothesis
+  ↓
+1~2개 변경
+  ↓
+Re-measure
+  ↓
+좋은 설정 기록
+  ↓
+Regression monitoring
+```
+
+확장 순서도 단계적으로 본다.
+
+``` text
+Single GPU
+   ↓
+Single-node Multi-GPU
+   ↓
+Multi-node
+```
+
+GPU 수가 N배 증가했는데 throughput이 N배에 가까워지지 않는다면 다음 중
+무엇이 제한하는지 분리한다.
+
+``` text
+CPU
+Storage
+H2D
+Network
+Synchronization
+GPU kernel
+```
+
+------------------------------------------------------------------------
+
+## 18. Chapter 5 전체 연결
+
+``` text
+                    ┌─ Local NVMe
+Dataset ─ Storage ──┼─ NVMe-oF
+                    ├─ Parallel FS
+                    └─ Object Store
+                          │
+                          ▼
+                 Sequential / Sharded I/O
+                          │
+                 ┌────────┴────────┐
+                 │                 │
+             CPU path           GDS path
+                 │                 │
+          Host Memory          GPU HBM
+                 │                 │
+            async H2D              │
+                 └────────┬────────┘
+                          ▼
+                 Decode / Preprocess
+                          │
+                    DALI / workers
+                          │
+                          ▼
+                      GPU Compute
+```
+
+## Key Takeaways
+
+1.  GPU를 늘리면 storage aggregate bandwidth와 DataLoader capacity도
+    같이 늘려야 한다.
+2.  작은 random I/O를 반복하기보다 큰 sequential shard가 일반적으로
+    효율적이다.
+3.  데이터는 가능한 compute 가까이에 두고 node-local sharding/cache를
+    활용한다.
+4.  GDS는 storage→GPU 경로에서 host memory bounce buffer를 제거하지만
+    CPU orchestration까지 제거하는 것은 아니다.
+5.  GDS 효과는 workload, I/O size, queue depth, filesystem, NIC에 따라
+    달라지므로 실제 step time으로 검증한다.
+6.  `cuda-checkpoint`는 process/GPU state checkpoint이며 framework model
+    checkpoint와 역할이 다르다.
+7.  3FS는 AI workload에 맞춰 storage layer 자체를 codesign하는 사례다.
+8.  NFS, object store, parallel filesystem은 규모와 access pattern에
+    맞게 선택하고 튜닝해야 한다.
+9.  worker, pinned memory, prefetch, asynchronous H2D를 조합해 I/O와
+    compute를 overlap한다.
+10. DALI와 NeMo Curator를 통해 online preprocessing 부담을 줄일 수 있다.
+11. 최적화는 항상 end-to-end profiling과 반복 측정으로 확인한다.

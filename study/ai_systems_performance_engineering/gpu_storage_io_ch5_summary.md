@@ -1,4 +1,4 @@
-# Chapter 5. GPU-Based Storage I/O Optimizations --- 상세 정리
+# Chapter 5. GPU-Based Storage I/O Optimizations
 
 > 출처: Chris Fregly, *AI Systems Performance Engineering*\
 > 범위: Chapter 5 --- GPU-Based Storage I/O Optimizations\

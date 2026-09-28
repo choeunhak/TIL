@@ -1,4 +1,4 @@
-# Chapter 6. GPU Architecture, CUDA Programming, and Maximizing Occupancy --- 상세 정리
+# Chapter 6. GPU Architecture, CUDA Programming, and Maximizing Occupancy
 
 > 출처: Chris Fregly, *AI Systems Performance Engineering*\
 > 범위: Chapter 6 --- GPU Architecture, CUDA Programming, and Maximizing

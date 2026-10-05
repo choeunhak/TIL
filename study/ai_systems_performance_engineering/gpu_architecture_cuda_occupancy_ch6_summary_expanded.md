@@ -6,37 +6,7 @@
 
 ## 전체 흐름
 
-Chapter 5가 **Storage에서 GPU HBM까지 데이터를 끊기지 않게 공급하는 문제**였다면, Chapter 6은 **GPU에 들어온 데이터를 GPU 내부에서 어떻게 효율적으로 계산하는가**를 다룬다.
-
-```text
-CPU
- │
- │ kernel launch
- ▼
-Grid
- │
- ├─ Block 0
- │   ├─ Warp 0 ─ 32 threads
- │   ├─ Warp 1 ─ 32 threads
- │   └─ ...
- ├─ Block 1
- └─ ...
-      │
-      ▼
-     SM
- ┌────────────────────────────┐
- │ Warp Scheduler             │
- │ Registers                  │
- │ Shared Memory / L1         │
- │ CUDA / Tensor Cores        │
- └────────────────────────────┘
-      │
-      ▼
-     L2
-      │
-      ▼
-     HBM
-```
+GPU에 들어온 데이터를 GPU 내부에서 어떻게 효율적으로 계산하는가
 
 성능 관점에서는 다음 연결을 계속 기억하면 된다.
 

@@ -1557,8 +1557,6 @@ occupancy ↓
 
 # 26. 높은 Occupancy가 항상 최고 성능은 아니다
 
-이 장에서 가장 중요한 결론 중 하나다.
-
 ```text
 Occupancy 100%
 ≠ 항상 최고 성능
